@@ -227,7 +227,9 @@ impl App {
             }
 
             AppAction::BookmarkPrefixStart => {
-                if self.raindrop.is_some() && self.selected_article().is_some() {
+                if self.raindrop.is_none() {
+                    self.bookmark_status = Some(("Raindrop not configured".to_string(), Instant::now()));
+                } else if self.selected_article().is_some() {
                     self.bookmark_prefix_active = true;
                 }
             }
@@ -237,14 +239,19 @@ impl App {
             }
 
             AppAction::SaveToRaindrop => {
-                if self.raindrop.is_some() && self.selected_article().is_some() {
+                if self.raindrop.is_none() {
+                    self.bookmark_status = Some(("Raindrop not configured".to_string(), Instant::now()));
+                } else if self.selected_article().is_some() {
                     self.tag_input_active = true;
                     self.tag_input.clear();
                 }
             }
 
             AppAction::SaveToRaindropWithTag(tag) => {
-                if self.raindrop.is_some() && self.selected_article().is_some() {
+                if self.raindrop.is_none() {
+                    self.bookmark_prefix_active = false;
+                    self.bookmark_status = Some(("Raindrop not configured".to_string(), Instant::now()));
+                } else if self.selected_article().is_some() {
                     self.bookmark_prefix_active = false;
                     self.save_to_raindrop_with_tag(&tag).await?;
                 }
