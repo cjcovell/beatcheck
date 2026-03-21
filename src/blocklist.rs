@@ -111,8 +111,9 @@ impl Blocklist {
     }
 
     fn blocklist_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from(".config"))
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Sync")
             .join("beatcheck")
             .join("blocklist.txt")
     }
