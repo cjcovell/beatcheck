@@ -82,7 +82,7 @@ impl App {
         let repository = Repository::new(&config.db_path).await?;
         let fetcher = FeedFetcher::new();
 
-        let summarizer = Arc::new(Summarizer::new());
+        let summarizer = Arc::new(Summarizer::new()?);
 
         let raindrop = config
             .raindrop_token

@@ -1,23 +1,28 @@
 use std::time::Duration;
 
-use tokio::process::Command;
+use reqwest::Client;
+use serde_json::{json, Value};
 
 use crate::error::{AppError, Result};
 
-const CLAUDE_MODEL: &str = "haiku";
+const CLAUDE_MODEL: &str = "claude-haiku-4-5-20251001";
+const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(90);
 
-pub struct Summarizer;
-
-impl Default for Summarizer {
-    fn default() -> Self {
-        Summarizer
-    }
+pub struct Summarizer {
+    client: Client,
+    api_key: String,
 }
 
 impl Summarizer {
-    pub fn new() -> Self {
-        Summarizer
+    pub fn new() -> Result<Self> {
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+            .map_err(|_| AppError::Claude("ANTHROPIC_API_KEY not set".to_string()))?;
+        let client = Client::builder()
+            .timeout(SUMMARY_TIMEOUT)
+            .build()
+            .map_err(|e| AppError::Claude(format!("Failed to build HTTP client: {}", e)))?;
+        Ok(Summarizer { client, api_key })
     }
 
     pub async fn generate_summary(
@@ -73,33 +78,38 @@ Article:
             article_title, content
         );
 
-        let output = tokio::time::timeout(
-            SUMMARY_TIMEOUT,
-            Command::new("claude")
-                .args([
-                    "-p",
-                    &prompt,
-                    "--model",
-                    CLAUDE_MODEL,
-                    "--output-format",
-                    "text",
-                    "--bare",
-                    "--no-session-persistence",
-                    "--max-turns",
-                    "1",
-                ])
-                .output(),
-        )
-        .await
-        .map_err(|_| AppError::Claude("Summary timed out after 90s".to_string()))?
-        .map_err(|e| AppError::Claude(format!("Failed to run claude CLI: {}", e)))?;
+        let body = json!({
+            "model": CLAUDE_MODEL,
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": prompt}]
+        });
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Claude(format!("claude CLI error: {}", stderr)));
+        let response = self
+            .client
+            .post(ANTHROPIC_API_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AppError::Claude(format!("API request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(AppError::Claude(format!("API error {}: {}", status, text)));
         }
 
-        let summary = String::from_utf8_lossy(&output.stdout).to_string();
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Claude(format!("Failed to parse API response: {}", e)))?;
+
+        let summary = data["content"][0]["text"]
+            .as_str()
+            .ok_or_else(|| AppError::Claude("No text in API response".to_string()))?
+            .to_string();
 
         // Strip format/type labels the model sometimes adds despite instructions
         let summary = summary
