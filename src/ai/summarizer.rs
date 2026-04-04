@@ -1,53 +1,23 @@
 use std::time::Duration;
 
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 
 use crate::error::{AppError, Result};
 
-const CLAUDE_API_URL: &str = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODEL: &str = "claude-haiku-4-5-20251001";
+const CLAUDE_MODEL: &str = "haiku";
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(90);
 
-#[derive(Debug, Serialize)]
-struct MessageRequest {
-    model: String,
-    max_tokens: u32,
-    messages: Vec<Message>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<String>,
-}
+pub struct Summarizer;
 
-#[derive(Debug, Serialize)]
-struct Message {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct MessageResponse {
-    content: Vec<ContentBlock>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ContentBlock {
-    #[serde(rename = "type")]
-    #[allow(dead_code)]
-    content_type: String,
-    text: Option<String>,
-}
-
-pub struct Summarizer {
-    client: Client,
-    api_key: String,
+impl Default for Summarizer {
+    fn default() -> Self {
+        Summarizer
+    }
 }
 
 impl Summarizer {
-    pub fn new(api_key: String) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to create HTTP client");
-        Self { client, api_key }
+    pub fn new() -> Self {
+        Summarizer
     }
 
     pub async fn generate_summary(
@@ -66,7 +36,7 @@ impl Summarizer {
             article_content
         };
 
-        let user_message = format!(
+        let prompt = format!(
             r#"You are a journalist summarizing articles using the nut graph structure. Summarize the article below using the appropriate format.
 
 First, determine: Is this article primarily about a specific PRODUCT (hardware, software, app, device) or is it EDITORIAL (news, policy, analysis, industry event)?
@@ -103,39 +73,33 @@ Article:
             article_title, content
         );
 
-        let request = MessageRequest {
-            model: CLAUDE_MODEL.to_string(),
-            max_tokens: 1024,
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: user_message,
-            }],
-            system: None,
-        };
+        let output = tokio::time::timeout(
+            SUMMARY_TIMEOUT,
+            Command::new("claude")
+                .args([
+                    "-p",
+                    &prompt,
+                    "--model",
+                    CLAUDE_MODEL,
+                    "--output-format",
+                    "text",
+                    "--bare",
+                    "--no-session-persistence",
+                    "--max-turns",
+                    "1",
+                ])
+                .output(),
+        )
+        .await
+        .map_err(|_| AppError::Claude("Summary timed out after 90s".to_string()))?
+        .map_err(|e| AppError::Claude(format!("Failed to run claude CLI: {}", e)))?;
 
-        let response = self
-            .client
-            .post(CLAUDE_API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(AppError::ClaudeApi(format!("API error: {}", error_text)));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::Claude(format!("claude CLI error: {}", stderr)));
         }
 
-        let message_response: MessageResponse = response.json().await?;
-
-        let summary = message_response
-            .content
-            .into_iter()
-            .filter_map(|block| block.text)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let summary = String::from_utf8_lossy(&output.stdout).to_string();
 
         // Strip format/type labels the model sometimes adds despite instructions
         let summary = summary

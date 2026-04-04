@@ -26,8 +26,8 @@ pub enum AppError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Claude API error: {0}")]
-    ClaudeApi(String),
+    #[error("Claude error: {0}")]
+    Claude(String),
 
     #[error("Raindrop API error: {0}")]
     RaindropApi(String),

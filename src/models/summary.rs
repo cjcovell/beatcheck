@@ -17,5 +17,4 @@ pub enum SummaryStatus {
     Generating,
     Generated,
     Failed,
-    NoApiKey,
 }

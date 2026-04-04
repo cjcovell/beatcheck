@@ -35,9 +35,6 @@ cargo install --path .
 Create `~/.config/beatcheck/config.toml`:
 
 ```toml
-# Required for AI summaries
-claude_api_key = "sk-ant-..."
-
 # Optional: Raindrop.io integration
 raindrop_token = "..."
 

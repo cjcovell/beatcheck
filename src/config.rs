@@ -10,7 +10,6 @@ pub struct Config {
     #[serde(default = "default_db_path")]
     pub db_path: String,
 
-    pub claude_api_key: Option<String>,
     pub raindrop_token: Option<String>,
 
     #[serde(default = "default_refresh_interval")]
@@ -37,7 +36,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             db_path: default_db_path(),
-            claude_api_key: None,
             raindrop_token: None,
             refresh_interval_minutes: default_refresh_interval(),
             default_tags: vec!["rss".to_string()],
@@ -75,9 +73,6 @@ impl Config {
         };
 
         // Environment variables override config file values
-        if let Ok(key) = std::env::var("CLAUDE_API_KEY") {
-            config.claude_api_key = Some(key);
-        }
         if let Ok(token) = std::env::var("RAINDROP_TOKEN") {
             config.raindrop_token = Some(token);
         }
@@ -116,7 +111,6 @@ mod tests {
 
         assert!(config.db_path.contains("beatcheck"));
         assert!(config.db_path.ends_with("feeds.db"));
-        assert_eq!(config.claude_api_key, None);
         assert_eq!(config.raindrop_token, None);
         assert_eq!(config.refresh_interval_minutes, 30);
         assert_eq!(config.default_tags, vec!["rss".to_string()]);
@@ -133,7 +127,6 @@ mod tests {
     fn test_parse_full_config() {
         let toml = r#"
 db_path = "/custom/path/feeds.db"
-claude_api_key = "sk-test-key"
 raindrop_token = "rd-token-123"
 refresh_interval_minutes = 60
 default_tags = ["news", "tech"]
@@ -142,7 +135,6 @@ default_tags = ["news", "tech"]
         let config = toml.parse::<Config>().unwrap();
 
         assert_eq!(config.db_path, "/custom/path/feeds.db");
-        assert_eq!(config.claude_api_key, Some("sk-test-key".to_string()));
         assert_eq!(config.raindrop_token, Some("rd-token-123".to_string()));
         assert_eq!(config.refresh_interval_minutes, 60);
         assert_eq!(config.default_tags, vec!["news", "tech"]);
@@ -157,7 +149,6 @@ default_tags = ["news", "tech"]
 
         // db_path gets default
         assert!(config.db_path.contains("beatcheck"));
-        assert_eq!(config.claude_api_key, None);
         assert_eq!(config.raindrop_token, None);
         assert_eq!(config.refresh_interval_minutes, 30);
         assert!(config.default_tags.is_empty()); // serde default for Vec is empty
@@ -178,22 +169,18 @@ default_tags = ["podcast"]
 
         // Defaults for unspecified
         assert!(config.db_path.contains("beatcheck"));
-        assert_eq!(config.claude_api_key, None);
         assert_eq!(config.raindrop_token, None);
     }
 
     #[test]
-    fn test_parse_config_with_only_api_keys() {
+    fn test_parse_config_with_only_tokens() {
         let toml = r#"
-claude_api_key = "my-claude-key"
 raindrop_token = "my-raindrop-token"
 "#;
 
         let config = toml.parse::<Config>().unwrap();
 
-        assert_eq!(config.claude_api_key, Some("my-claude-key".to_string()));
         assert_eq!(config.raindrop_token, Some("my-raindrop-token".to_string()));
-        // Defaults applied
         assert_eq!(config.refresh_interval_minutes, 30);
     }
 
@@ -221,7 +208,6 @@ refresh_interval_minutes = "not a number"
     fn test_serialize_config() {
         let config = Config {
             db_path: "/test/feeds.db".to_string(),
-            claude_api_key: Some("test-key".to_string()),
             raindrop_token: None,
             refresh_interval_minutes: 45,
             default_tags: vec!["a".to_string(), "b".to_string()],
@@ -230,7 +216,6 @@ refresh_interval_minutes = "not a number"
         let toml = config.to_string();
 
         assert!(toml.contains("db_path = \"/test/feeds.db\""));
-        assert!(toml.contains("claude_api_key = \"test-key\""));
         assert!(toml.contains("refresh_interval_minutes = 45"));
         assert!(toml.contains("default_tags = ["));
     }
@@ -239,7 +224,6 @@ refresh_interval_minutes = "not a number"
     fn test_roundtrip_serialization() {
         let original = Config {
             db_path: "/my/custom/path.db".to_string(),
-            claude_api_key: Some("key123".to_string()),
             raindrop_token: Some("token456".to_string()),
             refresh_interval_minutes: 120,
             default_tags: vec!["tag1".to_string(), "tag2".to_string(), "tag3".to_string()],
@@ -249,7 +233,6 @@ refresh_interval_minutes = "not a number"
         let parsed = toml.parse::<Config>().unwrap();
 
         assert_eq!(parsed.db_path, original.db_path);
-        assert_eq!(parsed.claude_api_key, original.claude_api_key);
         assert_eq!(parsed.raindrop_token, original.raindrop_token);
         assert_eq!(
             parsed.refresh_interval_minutes,
@@ -288,17 +271,6 @@ refresh_interval_minutes = 10080
 
         let config = toml.parse::<Config>().unwrap();
         assert_eq!(config.refresh_interval_minutes, 10080); // 1 week in minutes
-    }
-
-    #[test]
-    fn test_special_characters_in_api_key() {
-        let toml = r#"
-claude_api_key = "sk-ant-api03-abc123!@#$%^&*()_+-=[]{}|;':\",./<>?"
-"#;
-
-        let config = toml.parse::<Config>().unwrap();
-        assert!(config.claude_api_key.is_some());
-        assert!(config.claude_api_key.unwrap().starts_with("sk-ant-api03"));
     }
 
     #[test]

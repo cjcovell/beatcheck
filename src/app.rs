@@ -72,7 +72,7 @@ pub struct App {
     // Services
     pub repository: Repository,
     fetcher: FeedFetcher,
-    summarizer: Option<Arc<Summarizer>>,
+    summarizer: Arc<Summarizer>,
     raindrop: Option<RaindropClient>,
     content_fetcher: ContentFetcher,
 }
@@ -82,10 +82,7 @@ impl App {
         let repository = Repository::new(&config.db_path).await?;
         let fetcher = FeedFetcher::new();
 
-        let summarizer = config
-            .claude_api_key
-            .as_ref()
-            .map(|key| Arc::new(Summarizer::new(key.clone())));
+        let summarizer = Arc::new(Summarizer::new());
 
         let raindrop = config
             .raindrop_token
@@ -437,11 +434,6 @@ impl App {
     }
 
     async fn generate_summary(&mut self) -> Result<()> {
-        let Some(summarizer) = &self.summarizer else {
-            self.summary_status = SummaryStatus::NoApiKey;
-            return Ok(());
-        };
-
         let Some(article) = self.selected_article() else {
             return Ok(());
         };
@@ -484,7 +476,7 @@ impl App {
         };
 
         // Spawn background task for summary generation
-        let summarizer = Arc::clone(summarizer);
+        let summarizer = Arc::clone(&self.summarizer);
         let tx = self.summary_tx.clone();
 
         tokio::spawn(async move {
