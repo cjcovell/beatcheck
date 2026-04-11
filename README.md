@@ -54,7 +54,7 @@ Environment variables override config file values:
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_API_KEY` | Claude API key for summaries |
+| `ANTHROPIC_API_KEY` | Anthropic API key for summaries |
 | `RAINDROP_TOKEN` | Raindrop.io API token |
 
 ### Data Locations
