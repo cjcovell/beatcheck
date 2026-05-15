@@ -29,19 +29,32 @@ use tui::{draw, handle_key_event};
 async fn main() -> Result<()> {
     // Initialize logging (only show warnings and errors by default)
     // Filter out html5ever warnings which corrupt the TUI display
-    // Also write to /tmp/beatcheck-errors.log
+    // Write to per-user data dir (out of world-readable /tmp).
     use std::fs::OpenOptions;
     use std::io::Write;
     use tracing_subscriber::fmt::MakeWriter;
 
-    let log_file = match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/beatcheck-errors.log")
-    {
-        Ok(file) => Some(std::sync::Arc::new(std::sync::Mutex::new(file))),
+    let log_path = dirs::data_local_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("beatcheck");
+    let _ = std::fs::create_dir_all(&log_path);
+    let log_path = log_path.join("beatcheck-errors.log");
+
+    let log_file = match OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(file) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+            }
+            Some(std::sync::Arc::new(std::sync::Mutex::new(file)))
+        }
         Err(err) => {
-            eprintln!("Warning: unable to open /tmp/beatcheck-errors.log: {err}");
+            eprintln!(
+                "Warning: unable to open log file at {}: {err}",
+                log_path.display()
+            );
             None
         }
     };

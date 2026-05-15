@@ -67,15 +67,15 @@ pub struct RaindropClient {
 }
 
 impl RaindropClient {
-    pub fn new(access_token: String) -> Self {
+    pub fn new(access_token: String) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .expect("Failed to create HTTP client");
-        Self {
+            .map_err(|e| AppError::RaindropApi(format!("Failed to create HTTP client: {e}")))?;
+        Ok(Self {
             client,
             access_token,
-        }
+        })
     }
 
     /// Get the News collection ID, fetching and caching it if needed
@@ -151,8 +151,12 @@ impl RaindropClient {
             .await?;
 
         if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(AppError::RaindropApi(format!("API error: {}", error_text)));
+            let status = response.status();
+            // Log the raw body at debug-only; surface just the status to the user
+            // so an API key or other sensitive echo never leaks into the TUI / logs.
+            let body = response.text().await.unwrap_or_default();
+            tracing::debug!("Raindrop API error body: {}", body);
+            return Err(AppError::RaindropApi(format!("API error: HTTP {status}")));
         }
 
         let raindrop_response: RaindropResponse = response.json().await?;

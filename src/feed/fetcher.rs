@@ -14,15 +14,15 @@ pub struct FeedFetcher {
 }
 
 impl FeedFetcher {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .user_agent("beatcheck/1.2.0")
             .build()
-            .expect("Failed to create HTTP client");
+            .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {e}"))?;
 
-        Self { client }
+        Ok(Self { client })
     }
 
     pub async fn fetch_feed(&self, feed_id: i64, url: &str) -> Result<Vec<NewArticle>> {
@@ -205,18 +205,12 @@ impl FeedFetcher {
     }
 }
 
-impl Default for FeedFetcher {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn fetcher() -> FeedFetcher {
-        FeedFetcher::new()
+        FeedFetcher::new().expect("FeedFetcher::new failed in test")
     }
 
     // ==================== resolve_url tests ====================

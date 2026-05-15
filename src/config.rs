@@ -86,7 +86,13 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let content = self.to_string();
-        std::fs::write(config_path, content)?;
+        std::fs::write(&config_path, content)?;
+        // Lock the file to the owner (raindrop_token is stored in plaintext).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 

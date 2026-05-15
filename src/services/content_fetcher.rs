@@ -2,9 +2,10 @@ use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use reqwest::Client;
 use rusqlite::params;
 use std::time::Duration;
+use tempfile::NamedTempFile;
 use url::Url;
 
-use crate::error::Result;
+use crate::error::{AppError, Result};
 
 const USER_AGENT_STRING: &str =
     "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
@@ -14,12 +15,12 @@ pub struct ContentFetcher {
 }
 
 impl ContentFetcher {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .expect("Failed to create HTTP client");
-        Self { client }
+            .map_err(|e| AppError::Other(anyhow::anyhow!("Failed to create HTTP client: {e}")))?;
+        Ok(Self { client })
     }
 
     /// Fetch full article content using browser cookies
@@ -93,14 +94,21 @@ impl ContentFetcher {
             }
         };
 
-        // Chrome locks the database, so we need to copy it first
-        let temp_db = std::env::temp_dir().join("beatcheck-chrome-cookies.sqlite");
-        if let Err(e) = std::fs::copy(&cookies_db, &temp_db) {
+        // Chrome locks the database, so we copy it to a private temp file
+        // (auto-deleted on drop, randomized name, owner-only perms by default).
+        let temp = match NamedTempFile::new() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::debug!("Failed to create temp file for Chrome cookies: {}", e);
+                return Ok(String::new());
+            }
+        };
+        if let Err(e) = std::fs::copy(&cookies_db, temp.path()) {
             tracing::debug!("Failed to copy Chrome cookies database: {}", e);
             return Ok(String::new());
         }
 
-        let conn = match rusqlite::Connection::open(&temp_db) {
+        let conn = match rusqlite::Connection::open(temp.path()) {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!("Failed to open Chrome cookies database: {}", e);
@@ -131,9 +139,6 @@ impl ContentFetcher {
             .filter_map(|r| r.ok())
             .collect();
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&temp_db);
-
         Ok(cookies.join("; "))
     }
 
@@ -146,14 +151,21 @@ impl ContentFetcher {
             }
         };
 
-        // Firefox locks the database, so we need to copy it first
-        let temp_db = std::env::temp_dir().join("beatcheck-firefox-cookies.sqlite");
-        if let Err(e) = std::fs::copy(&firefox_path, &temp_db) {
+        // Firefox locks the database, so we copy it to a private temp file
+        // (auto-deleted on drop, randomized name, owner-only perms by default).
+        let temp = match NamedTempFile::new() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::debug!("Failed to create temp file for Firefox cookies: {}", e);
+                return Ok(String::new());
+            }
+        };
+        if let Err(e) = std::fs::copy(&firefox_path, temp.path()) {
             tracing::debug!("Failed to copy Firefox cookies database: {}", e);
             return Ok(String::new());
         }
 
-        let conn = match rusqlite::Connection::open(&temp_db) {
+        let conn = match rusqlite::Connection::open(temp.path()) {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!("Failed to open Firefox cookies database: {}", e);
@@ -182,9 +194,6 @@ impl ContentFetcher {
             })?
             .filter_map(|r| r.ok())
             .collect();
-
-        // Clean up temp file
-        let _ = std::fs::remove_file(&temp_db);
 
         Ok(cookies.join("; "))
     }
@@ -281,11 +290,5 @@ impl ContentFetcher {
             tracing::debug!("Extracted content too short ({} chars)", cleaned.len());
             None
         }
-    }
-}
-
-impl Default for ContentFetcher {
-    fn default() -> Self {
-        Self::new()
     }
 }

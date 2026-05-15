@@ -97,8 +97,11 @@ Article:
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(AppError::Claude(format!("API error {}: {}", status, text)));
+            // Log the raw body at debug-only; surface just the status to the user
+            // so any echoed key or PII never lands in the visible error or log file.
+            let body = response.text().await.unwrap_or_default();
+            tracing::debug!("Anthropic API error body: {}", body);
+            return Err(AppError::Claude(format!("API error: HTTP {status}")));
         }
 
         let data: Value = response

@@ -7,6 +7,9 @@ use regex::Regex;
 
 pub struct Blocklist {
     keywords: HashSet<String>,
+    // Compiled `\bkeyword\b` patterns, one per entry in `keywords`.
+    // Built once at load() so per-article checks don't recompile.
+    patterns: Vec<Regex>,
     last_modified: Option<SystemTime>,
 }
 
@@ -40,8 +43,14 @@ impl Blocklist {
             }
         }
 
+        let patterns = keywords
+            .iter()
+            .filter_map(|k| Regex::new(&format!(r"\b{}\b", regex::escape(k))).ok())
+            .collect();
+
         Self {
             keywords,
+            patterns,
             last_modified,
         }
     }
@@ -94,20 +103,7 @@ impl Blocklist {
     fn check_text_for_keywords(&self, text: &str) -> bool {
         // Convert text to lowercase for case-insensitive matching
         let text_lower = text.to_lowercase();
-
-        for keyword in &self.keywords {
-            // Build regex with word boundaries: \bkeyword\b
-            // Escape the keyword to handle special regex characters
-            let pattern = format!(r"\b{}\b", regex::escape(keyword));
-
-            if let Ok(re) = Regex::new(&pattern) {
-                if re.is_match(&text_lower) {
-                    return true;
-                }
-            }
-        }
-
-        false
+        self.patterns.iter().any(|re| re.is_match(&text_lower))
     }
 
     fn blocklist_path() -> PathBuf {
@@ -165,6 +161,24 @@ impl Blocklist {
         }
 
         Some(normalized)
+    }
+
+    #[cfg(test)]
+    fn from_keywords<I, S>(keywords: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let keywords: HashSet<String> = keywords.into_iter().map(Into::into).collect();
+        let patterns = keywords
+            .iter()
+            .filter_map(|k| Regex::new(&format!(r"\b{}\b", regex::escape(k))).ok())
+            .collect();
+        Self {
+            keywords,
+            patterns,
+            last_modified: None,
+        }
     }
 }
 
@@ -233,12 +247,7 @@ mod tests {
 
     #[test]
     fn test_contains_blocked_keyword_in_title() {
-        // Create blocklist with "bitcoin" keyword
-        let mut blocklist = Blocklist {
-            keywords: HashSet::new(),
-            last_modified: None,
-        };
-        blocklist.keywords.insert("bitcoin".to_string());
+        let blocklist = Blocklist::from_keywords(["bitcoin"]);
 
         // Should match case-insensitively
         assert!(blocklist.contains_blocked_keyword("Bitcoin news today", None));
@@ -251,11 +260,7 @@ mod tests {
 
     #[test]
     fn test_contains_blocked_keyword_in_content() {
-        let mut blocklist = Blocklist {
-            keywords: HashSet::new(),
-            last_modified: None,
-        };
-        blocklist.keywords.insert("crypto".to_string());
+        let blocklist = Blocklist::from_keywords(["crypto"]);
 
         // Should match in content even if not in title
         assert!(blocklist
@@ -267,11 +272,7 @@ mod tests {
 
     #[test]
     fn test_word_boundary_respects_partial() {
-        let mut blocklist = Blocklist {
-            keywords: HashSet::new(),
-            last_modified: None,
-        };
-        blocklist.keywords.insert("crypto".to_string());
+        let blocklist = Blocklist::from_keywords(["crypto"]);
 
         // Should NOT match when keyword is part of a larger word
         assert!(!blocklist.contains_blocked_keyword("I love cryptocurrency", None));
@@ -284,11 +285,7 @@ mod tests {
 
     #[test]
     fn test_word_boundary_matches_whole() {
-        let mut blocklist = Blocklist {
-            keywords: HashSet::new(),
-            last_modified: None,
-        };
-        blocklist.keywords.insert("crypto".to_string());
+        let blocklist = Blocklist::from_keywords(["crypto"]);
 
         // Should match when keyword appears as whole word
         assert!(blocklist.contains_blocked_keyword("I love crypto", None));
@@ -302,10 +299,7 @@ mod tests {
 
     #[test]
     fn test_empty_blocklist_matches_nothing() {
-        let blocklist = Blocklist {
-            keywords: HashSet::new(),
-            last_modified: None,
-        };
+        let blocklist = Blocklist::from_keywords(Vec::<String>::new());
 
         // Empty blocklist should never match
         assert!(!blocklist.contains_blocked_keyword("Bitcoin news", None));
