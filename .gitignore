@@ -2,6 +2,7 @@
 /dist/
 *.db
 *.sqlite
+.DS_Store
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
